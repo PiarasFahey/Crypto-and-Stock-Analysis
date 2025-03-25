@@ -1,0 +1,762 @@
+---
+title: "Financial Modelling Individual Assignment Q4 - Piaras Fahey 13371377"
+output: html_notebook
+---
+
+The development of cryptocurrency as a mainstream financial instrument has become more and more apparent within the last 10 years. As such a comparison of its behaviours, changes and trends to traditional financial instruments may be examined. In this project a comparison of multiple cryptocurrencies and stock prices from the New York Stock Exchange will be undertaken in order to investigate the potential underlying causes of these changes.
+
+I also have personal interest in the factors of influence specifically for Bitcoin. I bought €200 worth of Bitcoin in 2014 and promptly spent it on the Dark web. If sold at peak this would have been worth ~€120,000. As such, it is of interest to understand why my frivolous spending had the opportunity cost of a down payment on a mortgage.
+
+```{r}
+library(BatchGetSymbols)
+library(yahoofinancer)
+library(TTR)
+library(quantmod)
+library(psych)
+library(PerformanceAnalytics)
+library(pastecs)
+library(heatmaply)
+library(vars)
+library(ggm)
+library(tseries)
+library(DescTools)
+library(moments)
+library(rugarch)
+```
+
+First, a list of traditional financial assets must be selected for analysis.
+
+The selected Companies for this Analysis are as follows:
+
+1.  Tesla (TSLA) - Tesla is an automotive and energy company based in the USA. With a market cap of \~\$550B Tesla is one of the most prominent companies in this industry. Also to note is the CEO and minority owner of Tesla, Elon Musk, frequently engages in social media as a method of stock price manipulation (Reuters, 2022).
+
+2.  Amazon (AMZN) - Amazon has been referred to as "one of the most influential economic and cultural forces worldwide" (Jacoby, 2020). With a market cap of \~\$1.1T, Amazon is one of the most valuable companies in the world.
+
+3.  Apple (AAPL) - The largest company in the world by revenue. Apple is a tech giant that as of March 2023 has the largest market capitalisation in the world.
+
+4.  Meta (META) - Formerly Facebook, Meta is a tech conglomerate specialising in social media. Notably they own Facebook, Instagram and Whatsapp. With a market cap of \~\$600B they are one of the ten largest companies in the world by market valuation.
+
+5.  Google (GOOG) - Google is one of the pioneers of surveillance capitalism in the information age (Zuboff, 2019). After going public in 2004, google has grown to be one of the largest companies in the world by revenue and market capitalisation.
+
+6.  Netflix (NFLX) - Netflix is one of the world's leading online streaming platforms. With a leading market share in the US of 44.21% for the streaming industry, Netflix competes directly with the likes of Amazon and Google in this industry (Pandy, 2023). As such it is selected to see if there is a prominent difference in pricing behaviour compared to the other global conglomerates selected.
+
+7.  Microsoft (MSFT) - Another leading company in the tech industry. Microsoft has a current market capitalisation of ~2.3T.
+
+The historical financial data for each of these stocks was extracted using yahoo finance, specifically for the dates of 2015-01-01 to 2021-07-07 for similar scope to the available data on the corresponding cryptocurrency data.
+
+The close prices of the stocks was extracted and combined to a single data frame and then the returns for each stock was calculated using the Returns.calculate function.
+
+```{r}
+
+
+tickers <- c('TSLA', 'AMZN', 'AAPL', 'META', 'GOOG', 'NFLX', 'MSFT')
+
+getSymbols(tickers,
+           src='yahoo',
+           from = "2015-01-01",
+           to = "2021-07-07",
+           periodicity = 'daily')
+
+## extracting close prices and binding to one time series
+stock.prices <- cbind(TSLA$TSLA.Close,
+                      AMZN$AMZN.Close,
+                      AAPL$AAPL.Close,
+                      META$META.Close,
+                      GOOG$GOOG.Close,
+                      NFLX$NFLX.Close,
+                      MSFT$MSFT.Close)
+
+## calculating returns of stock prices
+stock.returns <- Return.calculate(stock.prices)
+
+colnames(stock.returns) <- tickers
+colnames(stock.prices) <- tickers
+
+head(stock.returns)
+tail(stock.returns)
+
+
+## descriptive statistics for stock prices
+stat.desc(stock.returns)
+```
+
+The cryptocurrencies selected for analysis are as follows:\
+
+1.  Bitcoin (BTC) - Bitcoin is the largest and most famous cryptocurrency in the world. Invented in 2008 by a person or group known as "Satoshi Nakamoto", Bitcoin has gone from being a fringe form of currency to one of the largest
+
+2.  Dogecoin (DOGE) - Dogecoin is an "altcoin" invented in 2013. One of the first "memecoins", Dogecoin is considered a satirical coin by it's creators. However it has gained large market traction and it's peak market capitalisation was over \$85B in May 2021. Dogecoin has been used in many satirical online movements, such as sponsorship of the Jamaican Bobsled team and recently being the sleeve sponsor of Watford Football club (Hern, 2014).
+
+3.  Ethereum (ETH) - Ethereum is the second largest cryptocurreny by market capitalisation in the world. A "smart" cryptocurrency, it is selected for analysis to investigate the similarities or differences it has to Bitcoin.
+
+4.  Litecoin (LTC) - The "Lite" version of Bitcoin. Litecoin is named as such because it facilitates the mining of the coin much more than the demanding mining algorithm of Bitcoin. The mining algorithm for Litecoin known as "scrypt" facilitates the use of less powerful hardware, making it more accessible to a greater portion of it's users.
+
+5.  Monero (MONERO) - Monero has a strong focus on privacy and anonymity. The main focus of Monero is an inability for the transaction to be traced or identified. Monero is selected for analysis as it has been accepted hesitantly by the cryptocurrency community and as such may have different pricing behaviours (Sephton, 2022).
+
+The dataset available from Kaggle has complete data only from 2015-08-08 to 2021-06-07.
+
+```{r}
+
+
+## loading in crypto prices from csv
+crypto.prices <- read.csv('crypto.prices.csv')
+
+## specifying dates
+crypto.prices$Date <- as.POSIXct(crypto.prices$Date, format = "%d/%m/%Y %H:%M")
+
+## removing the hours and minutes
+crypto.prices$Date <- as.Date(format(crypto.prices$Date,
+                format = '%Y-%m-%d'))
+
+## specifying times series
+crypto.prices.xts <- xts(crypto.prices[,-1], order.by = crypto.prices$Date)
+
+## calculating returns of crypto prices
+crypto.returns <- Return.calculate(crypto.prices)
+
+## descriptive statistics for crypto prices
+stat.desc(crypto.returns)
+```
+
+Next the two times series of stocks and crypto returns are merged and any na's within the time series are omitted. This gives a time series complete for Monday-Friday for the time period of 2015-10-26 to 2021-03-26.
+
+The descriptive statistics for these times series show Dogecoin had the greatest return over the entire period while Meta had the lowest. This is reflected in the plot of the price of Dogecoin with an extreme growth period in mid 2021. Meanwhile Meta mainted a slower upward trend over the period measured. This is also reflected in the volatility of each stock, as Dogecoin has the highest variance by almost an order of magnitude compared to the variance of the other returns. Google had the lowest variance but was comparable to the variance of microsoft and to a lesser extent Amazon, Apple and Meta. The cryptocurrencies all had higher variance than the stock returns, with Bitcoin having the lowest of the cryptocurrencies (\~0.0023) compared to Tesla which had the highest of the stocks (\~0.0013).
+
+The difference in volatilities in the returns of the cryptocurrencies versus the stocks would indicate the level of risk associated with each. A risk loving short term investor would be more suited to invest in the cryptocurrencies whereas a risk averse investment would be better suited to the stocks.
+
+Although as we see from average return for this period, the mean return is higher for the cryptocurrencies which does indicate a suitable increase in return as compensation for the higher risk.
+
+This finding may lead future investment strategy towards cryptocurrencies versus these stocks for a higher risk but higher return strategy. Notably the stocks may be used as a portfolio component to mitigate some risk of an investment exclusively in cryptocurrencies.
+
+```{r}
+## merging stock data and crypto data
+prices <- merge(stock.prices, crypto.prices)
+total.df <- na.omit(prices)
+returns <- Return.calculate(total.df)
+
+## final time series
+returns <- na.omit(returns)
+head(returns)
+summary(returns)
+stat.desc(returns)
+```
+
+```{r}
+plot(crypto.prices$DOGE, type="l")
+plot(stock.prices$META)
+plot(stock.prices$GOOG)
+
+plot(crypto.prices$BTC, type="l")
+plot(stock.prices$TSLA)
+
+plot(stock.prices)
+
+```
+
+
+Plots of the returns can be inspected to see if there is presence of volatility clustering.
+
+There does seem to be some evidence of volatility clustering but nothing conclusive can be drawn from this plot.
+
+```{r}
+
+plot(returns)
+
+```
+
+Looking more in depth at some location metrics for the returns of the assets, there seems to be little difference between the mean and the trimmed mean for the traditional stocks, whereas there is a significant change for all cryptocurrencies except Bitcoin. These indicates much higher volatility of returns for the cryptos whereas the traditional assets seem to be more stable.
+
+```{r}
+location.mean <- sapply(returns, mean)
+location.mean.t <- sapply(returns, mean, trim=0.1)
+location.median <- sapply(returns, median)
+location <- rbind(location.mean, location.mean.t, location.median)
+print(location)
+```
+
+Next, some metrics of variability are examined to distinguish further between the volatility of the returns of the selected assets.
+
+The stock had reasonably consistent standard deviation of returns indicating consistent volatility. Tesla did however have the highest standard deviation of all traditional stocks, which was seen in the plot of the stock prices showing Tesla's price as slightly more erratic.
+
+The cryptocurrencies by comparison have a much higher standard deviation indicating higher volatility of returns. Dogecoin in particular had a standard deviation an order of magnitude higher than the traditional stocks. This gives further credence to the notioin of these cryptocurrencies being a higher risk investment than the traditional stocks.
+
+```{r}
+var.MeanAD <- sapply(returns, MeanAD)
+var.variance <- sapply(returns, var)
+var.sd <- sapply(returns, sd)
+var.MedAD <- sapply(returns, mad)
+variability <- rbind(var.MeanAD, var.variance, var.sd, var.MedAD)
+print(variability)
+```
+
+The Box plot shows the presence of huge outliers for the cryptocurrencies compared to the stocks. Dogecoin in particular has an extreme outlier. 
+
+```{r}
+boxplot(returns, horizontal=TRUE, main="Returns")
+```
+
+Looking just at the stock returns, the outliers are on a much smaller scale. Tesla again can be seen to have greater variability through it's larger inter-quartile range and larger ranging outliers.
+
+```{r}
+boxplot(returns[,1:7], horizontal=TRUE, main="Stock Returns")
+```
+
+T
+
+```{r}
+skewness <- skewness(returns)
+print(skewness)
+```
+
+The results for the D'agostino skewness tests show skewness for all assets except Apple, Microsoft, Google and Bitcoin. Statistically significant skewness for the cryptocurrencies is expected given previous results and statistics. Similarly for Tesla, skewness is expected. However the statistically significant skewness for Amazon, Meta and Netflix does indicate a slightly more irregular pattern of returns than expected.
+
+
+```{r}
+for (i in 1:ncol(returns)){
+print(colnames(returns)[i])
+print(agostino.test(returns[,i], alternative = "two.sided"))
+}
+```
+
+Kurtosis values for all stocks are seen to be much greater than the threshold of 3 to be considered normally distributed. These results indicate a higher peak and fatter tails than a normal distribution, and more extreme values.
+
+```{r}
+kurtosis <- kurtosis(returns)
+print(kurtosis)
+```
+
+Further testing for normality is done with the plotting of qqnorm.
+
+From the plots none of the them have the straight line diagonal trend which would be seen if the returns were normally distributed. This is a strong indicator of non-normal distribution of returns for all of the selected assets. This may be cause of concern for investment strategy as normally distibuted returns are easier to predict and account for.
+
+```{r}
+par(mfrow=c(2,6))
+sapply(returns, qqnorm)
+```
+
+Next, the shapiro-wilkes test for normality is executed to further investigate the results of the qqplot and normality of the returns distributions.
+
+The results from this test show a statistically significant result for all of the returns being non-normally distributed. Further solidifying the results of the qqnorm and kurtosis tests.
+
+```{r}
+for (i in 1:ncol(returns))
+{
+  print(colnames(returns)[i])
+  print(shapiro.test(as.vector(returns[,i])))
+}
+```
+
+
+Looking next at the density of all returns. The kernel density plot shows the estimated probability density function for the sample of returns within this period. This plot shows a non bell-shaped curve, indicating that a normal distribution may not be a suitable model. It also shows the presence of an outlier with the scale of the x axis accomodating a much higher x value.
+
+Next auto-correlation is calculated for each variables in the time series.
+
+The auto-correlation plots show a fast decay to zero, indicating the series of returns for these stocks and cryptocurrencies is stationary. Also present is that several of the autocorrelations fall outside the test bounds, indicatin that the change in price is not white noise.
+
+The Box-Ljung test was calculated for each variable to test whether the null hypothesis stating the series is not autocorrelated can be rejected.
+
+The stocks and cryptocurrencies that found p-values to be significant, thus indicating the series is not auto-correlated are; Apple, Meta, Google, Netflix, Microsoft, Litecoin and Monero.
+
+This states that these returns for these series are auto-correlated and thus can be further investigated for the cause of the non-randomness that influences the change in price. Although the other stocks and cryptocurrencies did not test significantly to reject the null hypothesis, it cannot be stated with certainty that the change in price is independent of one another and as such may still be investiagted for the deterministic factors which may cause the change.
+
+```{r}
+
+return.density <- density(returns)
+plot(return.density)
+
+## acf on returns
+par(mfrow=c(2,6))
+lapply(c(returns), acf)
+
+## arima and box-ljung tests
+lapply(c(returns), Box.test,  lag = 5, type = "Ljung-Box")
+```
+
+To calculate the correlation of returns, the spearman method of calculating correlation was used. This is because this method does not assume linearity between the returns of the variables and it assumes the variables change together but not at a constant rate.
+
+Looking at the heatmap of correlation coefficients, there is a clear divide between the returns. The stock market returns are all correlated with each other to a significantly higher degree than the cryptocurrencies. Similarly the cryptocurrencies have much higher correlation with each other compared to the stock returns. The notable exception to this is Monero, which has no meaningful correlation with any other variable.
+
+These results are to be expected as cryptocurrencies have been found to be positively correlated with one another (Blockworks, 2023). The notable exception of Monero may be explained in part by it's difference to the other selected cryptocurrencies as taking a priority on privacy and anonymity of transaction and user. This has caused some divide in the acceptance of it as and caused a decrease in Bitcoin's influence of its pricing (Sephton, 2022).
+
+The pearson correlation was also executed but did not show any further findings or insights.
+
+```{r}
+# Spearman Correlation
+corr.matrix <- cor(returns, method = "spearman")
+corr.df <- as.data.frame(corr.matrix)
+
+heatmaply(corr.df)
+
+## Pearson Correlation
+corr.matrix.p <- cor(returns, method = "pearson")
+corr.df.p <- as.data.frame(corr.matrix)
+
+heatmaply(corr.df.p)
+```
+
+To further investigate the presence of volatility clustering, an ARMA GARCH model is fit.
+
+The results of this model show the estimated value of the parameter beta1 is close to 1 (0.948964), which suggests that there is evidence of volatility clustering.
+
+```{r}
+arma.garch.norm = ugarchspec(mean.model=list(armaOrder=c(1,0)),
+                             variance.model=list(garchOrder=c(1,1)))
+returns.garch.norm = ugarchfit(data=returns, spec=arma.garch.norm)
+returns.garch.norm
+```
+
+
+Causality
+
+Causality tests are executed to further understand the relationships each variable has onto another. Knowing whether a time series has useful information for forecasting another is critical to understand the underlying elements that influence the change in a time series.
+
+Although this is a multivariate time series. A Granger test for causality may be executed iteratively on each of the variables to analyse for causality within the time series. From this series of granger tests, a heatmap is applied to visualise the significance of the results of the granger test for each variable onto another. From this heatmap several significant p-values can be seen showing that there is information present within the returns time series for one variable that explains the change in another.
+
+Notably there is significance for almost all stock prices on each other. This can be interpreted as these stock prices having some inter-dependency on each other as a change in one has the significant implication of a change on many others and vice versa. This leads to the necessity in an investigation of causality for this returns time series as a multivariate time series.
+
+A causality from a VAR model is the obvious choice to understand causality for a multivariate time series. To build a VAR model, the VARselect function is used to calculate the optimal lag order for a VAR estimation. The output from this is p=1 which indicates an optimal lag order of 1 to be used for the VAR model.
+
+The causality function calculates the significance of each variable not granger causing all others and there being no instantaneous causality between them.
+
+From the results many of the tests are significant indicating a rejection of the hypothesis that there is no causality between the variables. This again indicates that information is present in the individual time series that may help to explain the change in the others.
+
+```{r}
+## granger test for causality for each ts permutation
+g.test <- data.frame(matrix(ncol=12,nrow=12), row.names = colnames(returns))
+g.result <- c()
+
+for (i in 1:ncol(returns)) 
+  { 
+    for (j in 1:ncol(returns)) 
+      { if (i != j)
+        {g.result <- grangertest(returns[,i],returns[,j], order=1)
+         g.test[i,j] <- g.result$`Pr(>F)`[2]
+        }
+    }
+  }
+colnames(g.test) <- colnames(returns)
+g.test
+
+heatmaply(g.test)
+
+
+
+## Causality based on VAR
+VARselect(returns, lag.max = 10)
+
+model_aic = VAR(returns, p = 1)
+model_bic = VAR(returns, p = 1)
+
+## causality
+causality(model_aic, cause = "TSLA")
+causality(model_aic, cause = "AMZN")
+causality(model_aic, cause = "AAPL")
+causality(model_aic, cause = "META")
+causality(model_aic, cause = "GOOG")
+causality(model_aic, cause = "NFLX")
+causality(model_aic, cause = "MSFT")
+causality(model_aic, cause = "BTC")
+causality(model_aic, cause = "LTC")
+causality(model_aic, cause = "ETH")
+causality(model_aic, cause = "DOGE")
+causality(model_aic, cause = "MONERO")
+
+```
+
+
+Statistical Factor Modelling
+
+Statistical factor modelling using the factanal function is used on the data set in order to understand how many latent variables are sufficient for modelling the change in returns. A for loop is ran for all valid numbers of factors for both a statistical model with no rotation and a model with a varimax rotation to maximise interpretability of the loadings.
+
+For both rotations, the highest factor with a significant  p-value is found to be with a model with 4 factors, indicating the best fit model for the data. 
+
+Looking specifically at the factor analysis of 4 factors with the varimax rotation.
+
+Factor 1 has strong loading for the traditional financial assets, although a slightly lower loading for Tesla and Netflix may indicate a tech market factor.
+
+Factor 2 can be seen to have strong loadings on Bitcoin, Litecoin, Ethereum and Dogecoin with a slightly weaker loading for Monero. It also has very weak loadings on the traditional financial assets indicating a factor that represents cryptocurrencies.
+
+Factor 3 is has a high loading on Google with more marginal loadings on Meta and Microsoft. This is harder to interpret but again favours the traditional financial assets.
+
+Factor 4 is also harder to interpret
+
+```{r}
+## Statistical model with no rotations
+for (i in 2:7)
+  {
+  print(factanal(returns, factors=i), cutoff=0.1)
+}
+
+## model with varimax rotation
+for (i in 2:7)
+{
+  print(factanal(returns, factors=i, rotation = "varimax"), cutoff=0.1)
+}
+
+print(factanal(returns, factors=4, rotation = "varimax"), cutoff=0.1)
+```
+
+Next Bartlett's test of sphericity is used to determine if factor analysis should be employed at all. As this test is statistically significant, factor analysis can be executed. Although this test only checks for significant similarity of the correlation of the returns to the identity matrix. It is essential to know that it is not similar to the identity matrix to move forward with further factor modelling. As the p-value is \< 0.05 the correlation matrix is significantly different from the identity matrix and thus further factor analysis can proceed.
+
+```{r}
+## bartlett sphericity testing
+cortest.bartlett(returns)
+```
+
+The Kaiser-Meyer-Olkin measure of sampling adequacy is used to determine the measure of factorability of the data set. As a reasonable cutoff is defined as an MSA of 0.6, the results of 0.88 indicates a very good score and show that this dataset may be explained well by latent variables expressed as factor.
+
+```{r}
+## Kaiser-Meyer-Olkin factor adequacy
+KMO(returns)
+## 0.87 is very good score
+```
+
+In order to decide on the number of factors to extract, a scree plot and parallel analysis is examined to see at what point factors no longer have sufficient meaningful variance.
+
+From the plot, the maximum number of factors to be extracted is 4. With a recommendation of factors of 4. Although a 4 factor model is recommended by the parallel analysis function, looking at the scree plot it seems 3 would be a sufficient number of factors to capture meaningful variance.
+
+```{r}
+## scree plot
+scree(returns)
+
+## parallel analysis
+fa.parallel(returns)
+```
+
+As the recommended number of factors to be extracted is 4, a factor model with 4 factors may be constructed an analysed.
+
+In this factor model: Factor 1 has large loadings on Google and Microsoft, with slighlty lower but still significant loadings for Apple and Meta. This may indicate a tech conglomerate factor. Factor 2 has large loading for Bitcoin Ethereum, Litecoin and Dogecoin representing more prominent cryptocurrencies. Factor 3 has large loadings on Amazon and Netflix with a weaker loading on Tesla. This is more difficult to interpret but may still be related to their prominence as online streaming services. Factor 4 has no significant loadings and looking at the proportion of variance explained of 0.02 leads to a consideration of a 3 factor model.
+
+The factor diagram again demonstrates the difference between loadings for stocks and cryptocurrencies. Demonstrating the difference in underlying causes of change in returns for them as financial instruments.
+
+```{r}
+## factor model with 4 factors
+factor4.model <- fa(returns, nfactors
+                   = 4, fm="ols", max.iter = 100, rotate
+                   = "oblimin")
+factor4.model
+fa.diagram(factor4.model)
+factor4.model$communality
+factor4.model$e.values
+100*factor4.model$e.values/length(factor4.model$e.values)
+print(factor4.model$Structure, cutoff=0, digits=3)
+```
+
+Looking now at a 3 factor model, there is no further insight or information to be gained. It reflects a similar structure and explanation as the 4 factor model but with a much lower cumulative variance (a decrease from 0.801 to 0.512)
+
+```{r}
+## again with 3 factors
+factor3.model <- fa(returns, nfactors
+                   = 3, fm="ols", max.iter = 100, rotate
+                   = "oblimin")
+factor3.model
+fa.diagram(factor3.model)
+factor3.model$communality
+factor3.model$e.values
+100*factor3.model$e.values/length(factor3.model$e.values)
+print(factor3.model$Structure, cutoff=0, digits=3)
+```
+
+Economic Factor Modelling
+
+The first Economic factor model is undertaken with conventional economic factors:
+
+1.  Interest rate - In this case the interest rate is represented by United States - Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity. This shows the return of a risk free investment over a 10 year period which can be measured as a benchmark return for a portfolio to beat. As such it is a marker of success for the returns of a financial investment to beat.
+
+2.  Core Consumer Price Index - This is a measure of how core consumer prices shift, excluding costs of staples such as energy and food which are typically the more volatile components of the broader consumer price index (Davidson & Jones, 2023). As such CCPI is a widely used measure of inflation.
+
+The data on these 2 Macroeconomic factors is gathered from <https://www.kaggle.com/datasets/calven22/usa-key-macroeconomic-indicators>
+
+The data set has monthly data on these factors ranging from 1981-01-01 to 2021-01-10.
+
+Next, a times series for the monthly change in these factors and returns is constructed. A log transformation of the returns is used to reduce the skewness and scale difference between the two variables.
+
+The log of monthly returns for the selected prices is also calculated for consistency.
+
+This produces the log of the change per month for 65 months. This should be sufficient to train an economic factor model on for a monthly scale.
+
+```{r}
+macros <- read.csv("macros.csv")
+
+macros$Date <- as.POSIXct(macros$Date, format = "%d/%m/%Y")
+
+macros.xts <- xts(macros[,c(2,3)], order.by = macros$Date)
+
+macros.change <- Return.calculate(macros.xts, method = "log")
+
+index(macros.change) <- as.yearmon(index(macros.change))
+
+head(macros.xts)
+tail(macros.xts)
+
+## calculating log of monthly returns for selected prices
+
+prices.full <- na.omit(prices)
+
+prices.monthly <- apply.monthly(prices.full, first)
+
+## Calculate monthly log returns
+returns.monthly <- Return.calculate(prices.monthly, method = "log")
+
+index(returns.monthly) <- as.yearmon(index(returns.monthly))
+
+## combining the factors and returns together
+everything <- cbind(macros.change, returns.monthly)
+
+## removing the incomplete rows
+everything <- na.omit(everything)
+
+```
+The first thing to evaluate from this Economic factor model is it's R square values for each of the variables as this represents the proportion of variance explained by the model. Dogecoin and Netflix have the highest R square values from the set of variables but are still very low with the model explaining ~6-7% of the variance in the change of prices for their prices.
+
+Amazon and Microsoft have extremely low R square values showing that this model has neglible explainability for these prices.
+
+Looking at the betas for interest rate and CCPI on each of the returns:
+
+An increase in Interest rate indicates an increase in returns for both Dogecoin and Monero, whereas it shows a decrease in returns for Meta and Tesla. This could prove to be a useful insight for hedging against an expected period of volatility for interest rates. However this must also be taken with a grain of salt as the respective R square values for these stocks and cryptocurrencies is not sufficient to inform investment decisions.
+
+This is an interesting finding as cryptocurrencies have been used to shield from unexpected changes in inflation rates aswell as CCPI (Godwin, 2023). Though the lack of response shown in this model for Ethereum and Bitcoin may be attributed for the low R square value.
+
+Interestingly the CCPI beta for all cryptocurrencies is highly positive. This shows an interesting contrast to the traditional financial instruments that have little to no response to unexpected changes in CCPI. This goes against what is commonly understood to be an important indicator for the health of an Economy which again shows the inadequacy of this model.
+
+
+```{r}
+
+
+arFit1 <- ar(cbind(everything$ir, everything$ccpi))
+res1 <- arFit1$res[3:65,]
+
+lmfit1 <- lm(everything[3:65,3:14]~res1[,1]+res1[,2])
+slmfit1 <- summary(lmfit1)
+slmfit1
+
+rsq1 = rep(0,12) 
+
+for (i in 1:12){rsq1[i]= slmfit1[[i]][[8]]} 
+beta_IR = lmfit1$coef[2,] 
+beta_CCPI = lmfit1$coef[3,] 
+
+par(mfrow=c(1,3)) # building three graphs in a row
+barplot(rsq1,horiz=T,names=names(beta_IR),main="R squared")
+barplot(beta_IR,hori=T,main="beta IR")
+barplot(beta_CCPI,hori=T,main="beta CCPI") 
+```
+
+The first Economic Factor model is taken on a monthly time scale and as such incurs a great amount of noise that is unaccounted for.
+
+A second Economic Factor model is constructed with slightly more unconventional economic factors but on a daily time scale so as not to lose the information present in the daily time series for returns.
+
+1.  Price of energy per Megawatt hour - As the cost of cryptocurrency mining is inherently linked to the cost of mining cryptocurrency, the price of energy may be a considerable factor in the price. Also as many of the stocks selected have high computing costs, it is of interest to investigate whether energy costs have influence on their stock pricings.
+
+2.  Weighted exchange rate of \$USD against the world - A measure of the equivalent buying power of the US dollar relative to the world. This factor is chosen to see how stocks on the New York stock exchange react to shock changes in the weighted value of the US dollar. It's also selected on the basis of investigating whether the US dollar has any underlying cause for the valuation of cryptocurrencies.
+
+Also to note is the daily frequency of observations for these values. This is also a contributing reason as to why they are selected; so as not to substantially decrease the frequency of observations incurring greater noise and uncertainty into the model.
+
+First the data must be loaded in, cleaned and the daily change of the factors must be calculated. The data transformation of the log of the changes is calculated to make the data more normal and improve lienarity between variables
+
+```{r}
+##------------------UNCONVENTIONAL ECONOMIC FACTOR DATA CLEANING AND PREPARATION------------
+
+
+## Cost of energy prices gathered from: https://www.kaggle.com/datasets/nicholasjhana/energy-consumption-generation-prices-and-weather
+## loading energy price data
+energy.prices <- read.csv("energyprices.csv")
+
+## specifying dates
+energy.prices$Date <- as.POSIXct(energy.prices$Date, format = "%d/%m/%Y")
+
+## energy prices as xts
+energy <- xts(energy.prices$Energy.Price, order.by = energy.prices$Date)
+
+
+
+## Exchange rate data gathered from: https://www.bis.org/statistics/xrusd.htm
+## loading exchange rates data
+rates.df <- read.csv("Exchange.Rates.csv")
+
+##taking only rate of USD against the world, removing qualitative rows, naming columns
+ex.rates <- cbind(rates.df$Reference.area, rates.df$XW.World)
+ex.rates <- as.data.frame(ex.rates[-c(1:7),])
+colnames(ex.rates) <- c("Date", "Rate")
+
+## specifying dates
+ex.rates$Date <- as.POSIXct(ex.rates$Date, format = "%d/%m/%Y")
+
+
+## creating time series
+ex.rates.xts <- xts(ex.rates[,2], order.by = ex.rates$Date)
+
+## combining the two time series of economic factors
+factors <- cbind(energy, ex.rates.xts)
+
+##omitting na's
+factors <- na.omit(factors)
+
+
+## calculating log changes of both factors
+factors$energy <- Return.calculate(factors$energy, method = "log")
+factors$ex.rates.xts <- Return.calculate(factors$ex.rates.xts, method = "log")
+
+## statistical description of factors
+stat.desc(factors[-1,])
+```
+
+Looking at the R squared for this model, it is clear that it does not explain the variance in the change in prices sufficiently. As the higher R square for Monero measures at only 0.018, accounting for only 1.8% in variance of the change in price for Monero.
+
+Despite this very poor R square value for this model, one interesting finding is the difference in response to unexpected changes in the strength of the US dollar for Ethereum and Monero. This does reflect the attraction of Monero as an independent deregulated and safe form of currency, which is very much a safe haven from the unexpected volatilities of fiat currencies (Godwin, 2023).
+
+```{r}
+model.df <- cbind(factors, returns)
+model.df <- na.omit(model.df)
+## 340 valid rows from 2015-10-26 to 2018-12-28
+
+## auto-regressive model of two factors
+arFit2 <- ar(cbind(model.df$energy, model.df$ex.rates.xts))
+
+##extracting residuals
+res2 <- arFit2$resid[5:340,]
+
+## fitting a regression of the returns of the stocks and crypto against the residuals of the economic factors
+lmfit2 <- lm(model.df[5:340,3:14]~res2[,1]+res2[,2])
+slmfit2 <- summary(lmfit2)
+slmfit2
+
+## extracting and plotting the influence the residuals have on each return anda then plotting them and the betas
+rsq2 = rep(0,12) 
+
+for (i in 1:12){rsq2[i]= slmfit2[[i]][[8]]} 
+beta_Energy = lmfit2$coef[2,] 
+beta_E_Rate = lmfit2$coef[3,] 
+
+par(mfrow=c(1,3)) 
+barplot(rsq2,horiz=T,names=names(beta_Energy),main="R squared") 
+barplot(beta_Energy,hori=T,main="beta Energy") 
+barplot(beta_E_Rate,hori=T,main="beta Exchange Rate") 
+
+```
+
+To create a monte-carlo simulation to forecast the stock and crypto prices we require a current stock price, expected return, volatility, a simulation period and a number of simulations. Adapting existing code for a monte-carlo simulation for yearly data to the daily data and then running the simulation 10000 times a simulation for the prices of each of the financial assets can be calculated for a year from the current price.
+
+It's not surpise that the cryptocurrencies had the largest increase. This is due to their higher average return over the measured period and the monte-carlo simulation not accounting for non-normal data.
+
+However, as the distribution for the daily returns has been proved to be non-normal, the results of this simulation can be considered to be innaccurate and not a sufficient prediction for future prices.
+
+
+```{r}
+## statistics for the daily returns of the selected assets
+stats <- stat.desc(returns)
+
+# Set parameters (total.df is the dataframe that contains the complete rows dataset of prices)
+current_price = total.df[1486,]
+annual_return =  stats[9,]*252
+annual_volatility = stats[13,]*sqrt(252)
+simulation_period = 1
+num_simulations = 10000
+
+# Define function to simulate stock prices
+simulate_stock_prices = function(current_price, annual_return, annual_volatility, simulation_period, num_simulations) {
+  # Calculate daily return and daily volatility
+  daily_return = annual_return / 252
+  daily_volatility = annual_volatility / sqrt(252)
+  
+  # Generate random daily returns using normal distribution
+  random_daily_returns = matrix(rnorm(num_simulations * 252, mean = daily_return, sd = daily_volatility), nrow = num_simulations, ncol = 252)
+  
+  # Calculate simulated stock prices
+  simulated_prices = t(apply(1 + random_daily_returns, 1, cumprod)) * current_price
+  return(simulated_prices)
+}
+
+##create object to store the predicted prices in
+expected_future_price <- matrix(ncol=length(current_price),nrow=1)
+colnames(expected_future_price) <- colnames(total.df)
+
+## Run the simulation
+for (i in 1:length(current_price))
+{
+simulated_prices = simulate_stock_prices(as.numeric(current_price[,i]), as.numeric(annual_return[,i]), as.numeric(annual_volatility[,i]), simulation_period, num_simulations)
+
+# Calculate expected future price
+expected_future_price[,i] = mean(simulated_prices[, 252])
+
+}
+
+print(expected_future_price)
+```
+
+A potentially different distribution to use for the monte-carlo simulation is the student's distribution as this is a generalisation of the normal distribution that captures both heavy tails and skewness, which have been shown to be present in the distribution of returns.
+
+Setting the degrees of freedom to be 10 and the non-centrality parameter to be equal to mean standard deviation of all the assets' returns. These paraemeters, though not perfect may better represent the distribution of the returns
+
+These results, although not necessarily accurate can be considered to be a prediction more reflective of the distribution of the returns.
+
+The predicted prices show a large increase on the price of the cryptocurrencies which is most likely a reflection of their higher average return over the measured period.
+The predicted prices for the stocks also show a large increase as reflected in their positive mean return but not to the same degree as the cryptocurrenices.
+
+```{r}
+## statistics for the daily returns of the selected assets
+stats <- stat.desc(returns)
+
+# Set parameters (total.df is the dataframe that contains the complete rows dataset of prices)
+current_price = total.df[1486,]
+annual_return =  stats[9,]*252
+annual_volatility = stats[13,]*sqrt(252)
+simulation_period = 1
+num_simulations = 10000
+
+# Define function to simulate stock prices
+simulate_stock_prices = function(current_price, annual_return, annual_volatility, simulation_period, num_simulations) {
+  # Calculate daily return and daily volatility
+  daily_return = annual_return / 252
+  daily_volatility = annual_volatility / sqrt(252)
+  
+  # Generate random daily returns using normal distribution
+  random_daily_returns = matrix(rt(num_simulations * 252, df=20, ncp=0.04710566)*daily_volatility, nrow = num_simulations, ncol = 252)
+  
+  # Calculate simulated stock prices
+  simulated_prices = t(apply(1 + random_daily_returns, 1, cumprod)) * current_price
+  return(simulated_prices)
+}
+
+##create object to store the predicted prices in
+expected_future_price <- matrix(ncol=length(current_price),nrow=1)
+colnames(expected_future_price) <- colnames(total.df)
+
+## Run the simulation
+for (i in 1:length(current_price))
+{
+simulated_prices = simulate_stock_prices(as.numeric(current_price[,i]), as.numeric(annual_return[,i]), as.numeric(annual_volatility[,i]), simulation_period, num_simulations)
+
+# Calculate expected future price
+expected_future_price[,i] = mean(simulated_prices[, 252])
+
+}
+
+print(expected_future_price)
+```
+
+
+The results of the Analysis from this project can conclude that the financial instruments of cryptocurrencies behave in a significantly different way to the traditional financial assets examined. They are found to have had higher overall returns and volatility than the traditional assets. Interestingly the correlation between the traditional assets selected and the selected cryptocurrencies is quite comparable indicating some homogeneity between the traditional assets and the cryptocurrencies.
+
+Although the factor models were found to be insufficient in explaining the variance of any of the selected assets, they did give some credence to further investigation and potentially important findings for the relationships between the assets themselves and some economic factors.
+
+
+
+References
+
+Blockworks. (2023, March 16). The Investor’s Guide to Crypto Correlation. Blockworks. https://blockworks.co/news/the-investors-guide-to-crypto-correlation
+
+Davidson, P., & Jones, C. (2023, May 10). CPI report live updates: Inflation dips to 4.9%; core consumer price gains stay elevated. USA TODAY. https://eu.usatoday.com/story/money/2023/05/10/cpi-report-data-inflation-live-updates/70200946007/#:~:text=The%20core%20consumer%20price%20index
+
+Godwin, P. U. (2023, May 10). How Crypto Reacts to Changes on the Consumer Price Index. Tekedia. https://www.tekedia.com/how-crypto-reacts-to-changes-on-the-consumer-price-index/
+
+Hern, A. (2014, January 20). It’s bobsleigh time: Jamaican team raises $25,000 in Dogecoin. The Guardian. https://www.theguardian.com/technology/2014/jan/20/jamaican-bobsled-team-raises-dogecoin-winter-olympics#:~:text=A%20group%20of%20supporters%20has
+
+Jacoby, J. (2020, February 18). Amazon Empire: The Rise and Reign of Jeff Bezos. FRONTLINE. https://www.pbs.org/wgbh/frontline/documentary/amazon-empire/
+
+Pandy, S. (2023, April 19). Netflix’s Market Share Decline Continues In 2023: Analysis Of Leading Streaming Platforms. Similarweb. https://www.similarweb.com/blog/insights/media-entertainment-news/streaming-q1-2023/
+
+Reuters. (2022, May 27). Musk sued by Twitter investors for stock “manipulation” during takeover bid. Reuters. https://www.reuters.com/markets/deals/musk-sued-by-twitter-investors-delayed-disclosure-stake-2022-05-26/
+
+Sephton, C. (2022, August 10). Monero vs Bitcoin | What is The Difference? Currency.com. https://currency.com/monero-vs-bitcoin-the-pros-and-cons
+
+Zuboff, S. (2019, September 5). How Google Discovered the Value of Surveillance. Longreads. https://longreads.com/2019/09/05/how-google-discovered-the-value-of-surveillance/
